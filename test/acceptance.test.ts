@@ -101,3 +101,18 @@ test('oversell is rejected and a partial sale cannot create a false trailing sto
   applySale(p,400n,2390000n,'recover');assert.equal(p.peakValueUsd,'3600000');
   assert.equal(exitDecision(p,quote(3600000n,600n),now),null);
 });
+test('confirmed fill ledger agrees with cash, rolling realized result and idempotent revert charges',()=>{
+  const dir=temp(),s=new Store(dir);try{
+    s.set('paper_cash','20000000');const buy=buyIntent();s.reserve(buy,limits);s.commitFill(buy,fill(buy));
+    const p=s.positions()[0]!,sell:Intent={...buyIntent(),side:'sell',positionId:p.id,reason:'exit',quote:quote(3000000n)};s.reserve(sell,limits);
+    const sale:Fill={...fill(sell),inAtoms:'1000',outAtoms:'3000000',outputUsd:'3000000'};s.commitFill(sell,sale);
+    assert.equal(s.get('paper_cash'),'20980000');assert.equal(s.realizedSince(0),980000n);
+    s.charge('same-reverted-signature','5000');s.charge('same-reverted-signature','5000');assert.equal(s.charges(),5000n);
+  }finally{s.close();rmSync(dir,{recursive:true});}
+});
+test('paper restart releases an unsent reservation without replaying a purchase',()=>{
+  const dir=temp(),s=new Store(dir);try{
+    const cfg=loadConfig();cfg.MODE='paper';s.set('mode','paper');s.reserve(buyIntent(),limits);
+    const ex={} as Executor;new Engine(cfg,s,ex,new Prices());assert.equal(s.pending().length,0);assert.equal(s.positions().length,0);
+  }finally{s.close();rmSync(dir,{recursive:true});}
+});

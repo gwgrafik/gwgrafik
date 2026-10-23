@@ -61,3 +61,5 @@ LIVE wymaga pliku keypair JSON zamontowanego tylko do odczytu poza repozytorium,
 - [docs/SOURCES.md](docs/SOURCES.md): źródła dokumentacji i limity.
 
 Nie ma wywołania LLM na krytycznej ścieżce sygnału lub transakcji. Claude służy do pracy nad kodem, eksperymentów i obsługi projektu.
+
+W chmurze build online natrafił na problem z zaufaniem CA proxy. TLS pozostawiono włączony. Obraz sprawdzono przez `Dockerfile.cached` z nazwanym kontekstem `npm_cache`, po `npm cache verify`; `npm ci --offline` nadal weryfikuje integralność lockfile. Standardowy Dockerfile obsługuje opcjonalny publiczny CA bundle przez BuildKit secret `cloud_ca`, bez kopiowania go do obrazu runtime. To szczegół środowiska chmurowego, nie potrzeba dodatkowego sekretu portfela.

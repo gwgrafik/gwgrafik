@@ -1,0 +1,74 @@
+{
+  "checked": "2026-10-23",
+  "production": true,
+  "counts": {
+    "info": 0,
+    "low": 0,
+    "moderate": 7,
+    "high": 8,
+    "critical": 0,
+    "total": 15
+  },
+  "unresolved": [
+    {
+      "package": "@coral-xyz/anchor",
+      "severity": "high"
+    },
+    {
+      "package": "@coral-xyz/borsh",
+      "severity": "moderate"
+    },
+    {
+      "package": "@pump-fun/agent-payments-sdk",
+      "severity": "high"
+    },
+    {
+      "package": "@pump-fun/pump-sdk",
+      "severity": "high"
+    },
+    {
+      "package": "@pump-fun/pump-swap-sdk",
+      "severity": "high"
+    },
+    {
+      "package": "@solana/buffer-layout-utils",
+      "severity": "high"
+    },
+    {
+      "package": "@solana/spl-token",
+      "severity": "high"
+    },
+    {
+      "package": "@solana/spl-token-group",
+      "severity": "moderate"
+    },
+    {
+      "package": "@solana/spl-token-metadata",
+      "severity": "moderate"
+    },
+    {
+      "package": "@solana/web3.js",
+      "severity": "moderate"
+    },
+    {
+      "package": "bigint-buffer",
+      "severity": "high"
+    },
+    {
+      "package": "jayson",
+      "severity": "moderate"
+    },
+    {
+      "package": "stream-json",
+      "severity": "moderate"
+    },
+    {
+      "package": "toml",
+      "severity": "high"
+    },
+    {
+      "package": "uuid",
+      "severity": "moderate"
+    }
+  ]
+}

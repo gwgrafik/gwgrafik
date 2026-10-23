@@ -34,8 +34,14 @@ export function dashboard(store:Store,cfg:Config,wallets:WalletWatch){
     const closed=positions.filter(p=>p.status==='closed'),wins=closed.filter(p=>BigInt(p.realizedUsd)>0n);
     const grossWins=closed.reduce((s,p)=>s+(BigInt(p.realizedUsd)>0n?BigInt(p.realizedUsd):0n),0n);
     const grossLoss=-closed.reduce((s,p)=>s+(BigInt(p.realizedUsd)<0n?BigInt(p.realizedUsd):0n),0n);
+    const open=positions.filter(p=>p.status!=='closed');
+    const marked=open.map(p=>({p,m:store.get<{netUsd:string|null;at:number}>('mark:'+p.id)}));
+    const marksReady=marked.every(({m})=>m?.netUsd!==null&&m?.netUsd!==undefined&&Date.now()-m.at<45000);
+    const unrealized=marksReady?marked.reduce((s,{p,m})=>s+BigInt(m!.netUsd!)-BigInt(p.basisRemainingUsd),0n).toString():null;
+    const strategyResults=Object.fromEntries([...new Set(positions.map(p=>p.strategy))].map(name=>[name,positions.filter(p=>p.strategy===name).reduce((s,p)=>s+BigInt(p.realizedUsd),0n).toString()]));
     const state={at:Date.now(),mode:cfg.MODE,status:store.get('market_ready')?'dane odbierane':'oczekiwanie na źródła; brak potwierdzenia gotowości rynku',
       summary:{paperCashMicroUsd:cfg.MODE==='paper'?store.get('paper_cash'):null,realizedMicroUsd:realized.toString(),
+        unrealizedMicroUsd:unrealized,engagedBasisMicroUsd:open.reduce((s,p)=>s+BigInt(p.basisRemainingUsd),0n).toString(),strategyResultsMicroUsd:strategyResults,
         openPositions:positions.filter(p=>p.status!=='closed').length,costsMicroUsd:(fills.reduce((s,f)=>s+BigInt(f.networkFeeUsd),0n)+store.charges()).toString(),
         closed:closed.length,winRate:closed.length?wins.length/closed.length:null,profitFactor:grossLoss?Number(grossWins)/Number(grossLoss):null,
         expectancyMicroUsd:closed.length?(closed.reduce((s,p)=>s+BigInt(p.realizedUsd),0n)/BigInt(closed.length)).toString():null,

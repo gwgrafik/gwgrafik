@@ -1,10 +1,12 @@
 FROM node:24-bookworm-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci --cache=/tmp/npm --fetch-timeout=20000 --fetch-retries=1
+RUN --mount=type=secret,id=cloud_ca,required=false \
+    if [ -f /run/secrets/cloud_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/cloud_ca; fi; \
+    npm ci --cache=/tmp/npm --fetch-timeout=20000 --fetch-retries=1
 COPY tsconfig.json ./
 COPY src ./src
-RUN npm run build && npm prune --omit=dev
+RUN npm run build && npm prune --omit=dev --offline --no-audit
 
 FROM node:24-bookworm-slim
 ENV NODE_ENV=production HOST=0.0.0.0 DATA_DIR=/app/data

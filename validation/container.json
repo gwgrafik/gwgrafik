@@ -1,0 +1,14 @@
+{
+  "build": "passed",
+  "method": "Dockerfile.cached, verified npm cache, npm ci --offline with lockfile integrity",
+  "http_health": 200,
+  "http_state": 200,
+  "observed_markets_after_restart": 96,
+  "persisted_startup_count": 2,
+  "user": "node",
+  "readonly_root": true,
+  "mode": "observe",
+  "live_transactions": 0,
+  "restart": "passed",
+  "note": "No wallet mounted. Public CA bundle supplied read-only for cloud proxy TLS."
+}

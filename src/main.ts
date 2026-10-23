@@ -49,7 +49,7 @@ schedule('readiness',5000,async()=>{
   let fresh=false;try{prices.get(SOL);prices.get(USDC);fresh=true;}catch{}
   store.set('market_ready',fresh&&Date.now()-at<20000);
 });
-schedule('retention',300000,async()=>store.retention());
+schedule('retention',300000,async()=>{store.retention();engine.pruneCaches();});
 schedule('wallet-persistence',5000,async()=>wallets.flush());
 await sources.start();
 store.event('startup',{mode:cfg.MODE,version:'0.1.0',liveTrading:cfg.MODE==='live'});
@@ -59,7 +59,7 @@ async function shutdown(){
   await sources.stop();server.close();
   // In-flight RPC calls have finite deadlines; keep SQLite open until they finish or process exits.
   const deadline=Date.now()+15000;while((tasks.size||engine.busy.size)&&Date.now()<deadline)await new Promise(r=>setTimeout(r,100));
-  wallets.flush();store.event('shutdown',{pending:store.pending().length});store.close();process.exit(0);
+  wallets.flush();store.event('shutdown',{pending:store.pending().length});store.releaseLease(engine.owner);store.close();process.exit(0);
 }
 process.on('SIGTERM',()=>void shutdown());process.on('SIGINT',()=>void shutdown());
 process.on('unhandledRejection',e=>{console.error(errorText(e));engine.halted=true;});

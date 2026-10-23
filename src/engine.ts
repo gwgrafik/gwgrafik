@@ -18,6 +18,12 @@ export class Engine {
     if(store.get('mode')!==undefined&&store.get('mode')!==cfg.MODE)throw new Error('Use a separate DATA_DIR for each mode');
     store.set('mode',cfg.MODE);
     if(store.get('paper_cash')===undefined)store.set('paper_cash',usd(cfg.PAPER_CASH_USD).toString());
+    if(cfg.MODE==='paper')for(const i of store.pending()){i.state='failed';store.saveIntent(i);}
+  }
+  pruneCaches(){
+    const now=Date.now();
+    for(const [key,h] of this.history)if((h.at(-1)?.receivedAt??0)<now-180000)this.history.delete(key);
+    for(const [key,f] of this.flows)if((f.at(-1)?.at??0)<now-60000)this.flows.delete(key);
   }
   flow(f:Flow){const list=(this.flows.get(f.mint)??[]).filter(x=>x.at>Date.now()-60000);if(!list.some(x=>x.signature===f.signature&&x.wallet===f.wallet&&x.side===f.side))list.push(f);this.flows.set(f.mint,list);}
   async market(m:Market){
@@ -41,7 +47,7 @@ export class Engine {
   }
   private async buy(mint:string,strategy:Strategy){
     const start=Date.now();
-    const realized=this.store.positions(false).reduce((s,p)=>s+BigInt(p.realizedUsd),0n)-this.store.charges();
+    const realized=this.store.realizedSince(Date.now()-86400000)-this.store.charges(Date.now()-86400000);
     if(realized < -usd(this.cfg.MAX_DAILY_LOSS_USD))throw new Error('daily_loss_limit');
     const input=this.cfg.ENABLE_PUMP_CURVE==='true'?SOL:USDC,decimals=input===SOL?9:6;
     const amount=atomsForUsd(usd(this.cfg.POSITION_USD),decimals,this.prices.get(input));

@@ -1,0 +1,46 @@
+{
+  "mode": "observe",
+  "status": "dane odbierane",
+  "observedTokenCount": 100,
+  "health": {
+    "mint-metadata": {
+      "source": "mint-metadata",
+      "ok": false,
+      "at": 1792788419628,
+      "error": "429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests from your IP\"}, \"id\": \"ada31df2-78ca-4be8-8dbf-56b273c8ec46\" } \r\n"
+    },
+    "dex-markets": {
+      "source": "dex-markets",
+      "ok": true,
+      "at": 1792788417786
+    },
+    "gecko-trending_pools": {
+      "source": "gecko-trending_pools",
+      "ok": true,
+      "at": 1792788417868
+    },
+    "pump-ws": {
+      "source": "pump-ws",
+      "ok": true,
+      "at": 1792788419588,
+      "slot": 460584207
+    },
+    "gecko-new_pools": {
+      "source": "gecko-new_pools",
+      "ok": true,
+      "at": 1792788417626
+    },
+    "dex-profiles": {
+      "source": "dex-profiles",
+      "ok": true,
+      "at": 1792788417655
+    },
+    "wallet-follow": {
+      "source": "wallet-follow",
+      "ok": false,
+      "at": 1792788418783,
+      "error": "429 Too Many Requests:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429, \"message\":\"Too many requests from your IP\"}, \"id\": \"8e71f1da-ea29-4099-8326-d991e469a727\" } \r\n"
+    }
+  },
+  "liveTransactions": 0
+}

@@ -21,6 +21,7 @@ export class Store {
       CREATE TABLE IF NOT EXISTS kv(key TEXT PRIMARY KEY,value TEXT);
       CREATE TABLE IF NOT EXISTS charges(signature TEXT PRIMARY KEY,at INTEGER,usd TEXT);
       CREATE TABLE IF NOT EXISTS dedup(key TEXT PRIMARY KEY,at INTEGER);
+      CREATE TABLE IF NOT EXISTS realizations(signature TEXT PRIMARY KEY,at INTEGER,usd TEXT,strategy TEXT);
       CREATE TABLE IF NOT EXISTS lease(id INTEGER PRIMARY KEY,owner TEXT,expires INTEGER);
     `);
   }
@@ -35,6 +36,7 @@ export class Store {
     });
   }
   assertLease(owner:string){const row=this.db.prepare('SELECT owner,expires FROM lease WHERE id=1').get();if(!row||row.owner!==owner||Number(row.expires)<=Date.now())throw new Error('Engine lease lost');}
+  releaseLease(owner:string){this.db.prepare('DELETE FROM lease WHERE id=1 AND owner=?').run(owner);}
   event(kind:string,payload:unknown,mint=''){this.db.prepare('INSERT INTO events(at,kind,mint,payload) VALUES(?,?,?,?)').run(Date.now(),kind,mint,json(payload));}
   market(m:Market){this.db.prepare('INSERT INTO markets VALUES(?,?) ON CONFLICT(mint) DO UPDATE SET payload=excluded.payload').run(m.mint,json(m));this.event('market',m,m.mint);}
   markets():Market[]{return this.db.prepare('SELECT payload FROM markets').all().map(r=>JSON.parse(String(r.payload)));}
@@ -72,8 +74,10 @@ export class Store {
       } else {
         const p=this.positions().find(p=>p.id===i.positionId);
         if(!p)throw new Error('Position missing during reconciliation');
+        const before=BigInt(p.realizedUsd);
         applySale(p,BigInt(f.inAtoms),BigInt(f.outputUsd)-BigInt(f.networkFeeUsd),i.reason,i.tier);
         this.savePosition(p);
+        this.db.prepare('INSERT INTO realizations VALUES(?,?,?,?)').run(f.signature,f.confirmedAt,(BigInt(p.realizedUsd)-before).toString(),i.strategy);
       }
       this.db.prepare('INSERT INTO fills VALUES(?,?,?)').run(f.signature,i.id,json(f));
       if(f.simulated){
@@ -90,7 +94,11 @@ export class Store {
   fills():Fill[]{return this.db.prepare('SELECT payload FROM fills').all().map(r=>JSON.parse(String(r.payload)));}
   charge(signature:string,microUsd:string){this.db.prepare('INSERT OR IGNORE INTO charges VALUES(?,?,?)').run(signature,Date.now(),microUsd);}
   charges(since=0):bigint{return this.db.prepare('SELECT usd FROM charges WHERE at>=?').all(since).reduce((s,r)=>s+BigInt(String(r.usd)),0n);}
+  realizedSince(since:number):bigint{return this.db.prepare('SELECT usd FROM realizations WHERE at>=?').all(since).reduce((s,r)=>s+BigInt(String(r.usd)),0n);}
   first(key:string){return this.db.prepare('INSERT OR IGNORE INTO dedup VALUES(?,?)').run(key,Date.now()).changes===1;}
-  retention(){this.db.prepare("DELETE FROM events WHERE at<? AND kind IN ('market','flow','decision','wallet_entry_candidate','mark')").run(Date.now()-86400000);this.db.prepare('DELETE FROM dedup WHERE at<?').run(Date.now()-7*86400000);}
+  retention(){
+    this.db.prepare("DELETE FROM events WHERE (at<? OR id<(SELECT id FROM events ORDER BY id DESC LIMIT 1 OFFSET 200000)) AND kind IN ('market','flow','decision','wallet_entry_candidate','mark')").run(Date.now()-86400000);
+    this.db.prepare('DELETE FROM dedup WHERE at<?').run(Date.now()-7*86400000);
+  }
   close(){this.db.close();}
 }

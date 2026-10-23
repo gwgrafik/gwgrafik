@@ -17,7 +17,7 @@ Najpierw przeczytaj README.md, SPECIFICATION.md i VALIDATION.md. W tym repozytor
 
 ## Ważne ograniczenia bieżącej implementacji
 
-- Próg straty jest obecnie konserwatywną blokadą na podstawie skumulowanego zrealizowanego wyniku i kosztów rewertów; wymaga ukończenia dziennego podziału według czasu fill. Nazwa MAX_DAILY_LOSS_USD nie oznacza jeszcze pełnej księgi dziennej.
+- MAX_DAILY_LOSS_USD oznacza ruchome 24 h według czasu potwierdzonego fill oraz kosztów rewertów, nie dobę kalendarzową. Przed migracją bazy z wcześniejszej wersji zweryfikuj zgodność tabeli realizations z fills.
 - Program nie ma niezależnego raportu expectancy na rzeczywistym zbiorze danych. Panel pokazuje tylko obliczalne metryki; brak dowodu przewagi strategii.
 - Przerwy WebSocket są raportowane, ale bez automatycznego historycznego backfill. Nie deklaruj kompletności danych portfeli.
 - Paper jest rozliczeniem minOut z bieżących kwotowań i estymat, nie symulacją MEV i lądowania transakcji.

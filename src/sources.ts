@@ -15,6 +15,8 @@ export class Sources extends EventEmitter {
   private decimals=new Map<string,number>();
   private metadataQueue=new Set<string>();
   private watchedWallets=new Set<string>();
+  private nextWalletQueryAt=0;
+  private nextMetadataQueryAt=0;
   private created=new Map<string,{at:number;symbol:string}>();
   private tradeValues=new Map<string,{at:number;usd:number}[]>();
   private seen=new Set<string>();
@@ -44,9 +46,17 @@ export class Sources extends EventEmitter {
     void tick();this.timers.push(setInterval(()=>void tick(),ms));
   }
   async start(){
+    this.schedule('source-cache-retention',60000,async()=>{
+      for(const [key,flows] of this.flow)if((flows.at(-1)?.at??0)<Date.now()-60000){this.flow.delete(key);this.tradeValues.delete(key);}
+      for(const key of this.decimals.keys())if(!this.candidates.has(key))this.decimals.delete(key);
+      for(const key of this.created.keys())if(!this.candidates.has(key))this.created.delete(key);
+    });
     this.schedule('mint-metadata',2000,async()=>{
+      if(Date.now()<this.nextMetadataQueryAt)throw new Error('metadata_rpc_cooldown_after_rate_limit');
       const batch=[...this.metadataQueue].slice(0,100);if(!batch.length)return;
-      const accounts=await this.rpc.getMultipleAccountsInfo(batch.map(k=>new PublicKey(k)),'confirmed');
+      let accounts;
+      try{accounts=await this.rpc.getMultipleAccountsInfo(batch.map(k=>new PublicKey(k)),'confirmed');}
+      catch(e){if(errorText(e).includes('429'))this.nextMetadataQueryAt=Date.now()+30000;throw e;}
       for(let i=0;i<batch.length;i++){
         const key=batch[i]!,account=accounts[i];this.metadataQueue.delete(key);
         if(account)try{this.decimals.set(key,unpackMint(new PublicKey(key),account,account.owner).decimals);}catch{}
@@ -138,7 +148,8 @@ export class Sources extends EventEmitter {
     new PublicKey(address);this.watchedWallets.add(address);
     this.wsStops.push(subscribeLogs(this.wsUrl,address,(logs,context)=>{
       if(logs.err||!logs.logs.some(l=>l.includes('Program JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4 invoke')||l.includes('Program '+PUMP_PROGRAM_ID.toBase58()+' invoke')))return;
-      if(this.running.has('wallet-transaction'))return;this.running.add('wallet-transaction');
+      if(this.running.has('wallet-transaction')||Date.now()<this.nextWalletQueryAt)return;
+      this.nextWalletQueryAt=Date.now()+2000;this.running.add('wallet-transaction');
       void (async()=>{
         try{
           const tx=await this.rpc.getParsedTransaction(logs.signature,{commitment:'confirmed',maxSupportedTransactionVersion:0});
@@ -153,7 +164,7 @@ export class Sources extends EventEmitter {
             if(mint===SOL||mint===USDC||amounts(post,mint)<=amounts(pre,mint))continue;
             this.add(mint,'winner-wallet');this.emit('wallet-follow',{mint,wallet:address,signature:logs.signature,receivedAt:Date.now(),slot:context.slot,historyVerified:false});
           }
-        }catch(e){this.emit('health',{source:'wallet-follow',ok:false,at:Date.now(),error:errorText(e)});}
+        }catch(e){if(errorText(e).includes('429'))this.nextWalletQueryAt=Date.now()+30000;this.emit('health',{source:'wallet-follow',ok:false,at:Date.now(),error:errorText(e)});}
         finally{this.running.delete('wallet-transaction');}
       })();
     },h=>this.emit('health',{...(h as object),source:'wallet-follow'})));
