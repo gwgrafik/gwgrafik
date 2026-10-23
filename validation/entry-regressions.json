@@ -1,0 +1,27 @@
+{
+  "base_commit": "6a059ea5bc5d7f8f3b92934ef2a1ae51abbb3809",
+  "typecheck": "passed",
+  "build": "passed",
+  "tests": {
+    "passed": 30,
+    "failed": 0,
+    "skipped": 0
+  },
+  "burst_test": {
+    "signals": 40,
+    "admitted": 1,
+    "quote_adapter_calls": 2,
+    "mode": "controlled paper fixture"
+  },
+  "keyless_jupiter_max_rps": 0.5,
+  "wallet_balance_ttl_ms": 3000,
+  "entry_interval_ms": 6000,
+  "mint_cooldown_ms": 30000,
+  "live_test_performed": false,
+  "vps_deployed": false,
+  "vps_local_commits_not_imported": [
+    "cb443d3",
+    "c9af469",
+    "6895fe8"
+  ]
+}

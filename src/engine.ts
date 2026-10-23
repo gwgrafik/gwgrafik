@@ -8,11 +8,15 @@ import { Prices } from './prices.js';
 import { evaluate } from './selection.js';
 import { exitDecision,recoverySize } from './policy.js';
 import { usd,atomsForUsd,valueUsd,min } from './money.js';
-import { errorText } from './http.js';
+import { errorText,retryDelay } from './http.js';
+import { entryEconomics } from './economics.js';
 export class Engine {
   history=new Map<string,Market[]>();flows=new Map<string,Flow[]>();
   busy=new Set<string>();readonly owner=randomUUID();
   halted=false;
+  private entryInFlight=false;
+  private nextEntryAt=0;
+  private nextMintEntryAt=new Map<string,number>();
   constructor(readonly cfg:Config,readonly store:Store,readonly executor:Executor,readonly prices:Prices){
     store.acquireLease(this.owner);
     if(store.get('mode')!==undefined&&store.get('mode')!==cfg.MODE)throw new Error('Use a separate DATA_DIR for each mode');
@@ -24,6 +28,7 @@ export class Engine {
     const now=Date.now();
     for(const [key,h] of this.history)if((h.at(-1)?.receivedAt??0)<now-180000)this.history.delete(key);
     for(const [key,f] of this.flows)if((f.at(-1)?.at??0)<now-60000)this.flows.delete(key);
+    for(const [key,at] of this.nextMintEntryAt)if(at<now)this.nextMintEntryAt.delete(key);
   }
   flow(f:Flow){const list=(this.flows.get(f.mint)??[]).filter(x=>x.at>Date.now()-60000);if(!list.some(x=>x.signature===f.signature&&x.wallet===f.wallet&&x.side===f.side))list.push(f);this.flows.set(f.mint,list);}
   async market(m:Market){
@@ -34,11 +39,20 @@ export class Engine {
     this.store.event('decision',decision,m.mint);
     if(decision.decision!=='BUY'||!decision.strategy||this.cfg.MODE==='observe'||this.busy.has(m.mint)||this.halted)return;
     if(this.store.positions().some(p=>p.mint===m.mint)||this.store.pending().some(i=>i.mint===m.mint))return;
-    // Bound concurrent network work without making discovery wait for a position's lifetime.
-    if(this.busy.size>=3){this.store.event('reject',{reason:'execution_backpressure'},m.mint);return;}
+    // Admission occurs before wallet/RPC/route reads. Signals do not imply outbound attempts.
+    const now=Date.now();
+    const reason=this.entryInFlight?'entry_in_flight':now<this.nextEntryAt?'entry_interval_or_rate_cooldown':
+      now<(this.nextMintEntryAt.get(m.mint)??0)?'mint_entry_cooldown':this.store.pending().length?'pending_transaction_reconciliation':
+      this.store.positions().some(p=>this.busy.has(p.mint))?'exit_management_priority':undefined;
+    if(reason){this.store.event('entry_deferred',{reason},m.mint);return;}
+    this.entryInFlight=true;this.nextEntryAt=now+this.cfg.ENTRY_INTERVAL_MS;
+    this.nextMintEntryAt.set(m.mint,now+this.cfg.ENTRY_MINT_COOLDOWN_MS);
+    this.store.event('entry_admitted',{at:now},m.mint);
     this.busy.add(m.mint);
-    try{await this.buy(m.mint,decision.strategy);}catch(e){this.store.event('reject',{reason:errorText(e)},m.mint);}finally{this.busy.delete(m.mint);}
+    try{await this.buy(m.mint,decision.strategy);}catch(e){this.backOffEntry(e);this.store.event('reject',{reason:errorText(e)},m.mint);}
+    finally{this.busy.delete(m.mint);this.entryInFlight=false;}
   }
+  private backOffEntry(e:unknown){const delay=retryDelay(e);if(delay){this.nextEntryAt=Math.max(this.nextEntryAt,Date.now()+delay);this.store.event('entry_rate_cooldown',{until:this.nextEntryAt,reason:errorText(e)});}}
   async cashUsd(){
     if(this.cfg.MODE==='paper')return BigInt(this.store.get<string>('paper_cash')!);
     const u=await this.executor.balance(USDC),s=await this.executor.balance(SOL);
@@ -59,9 +73,11 @@ export class Engine {
     }
     const q=await this.executor.quote(input,mint,amount);
     if(q.priceImpactPct>this.cfg.MAX_PRICE_IMPACT_PCT)throw new Error('price_impact_limit');
-    const exit=await this.executor.quote(mint,input,BigInt(q.minOutAtoms));
-    const inputCost=usd(this.cfg.POSITION_USD),roundTripLoss=inputCost-BigInt(exit.outUsd)+BigInt(q.networkFeeUsd)+BigInt(exit.networkFeeUsd);
-    if(roundTripLoss*10000n>inputCost*BigInt(Math.round(this.cfg.MAX_TRADE_COST_PCT*100)))throw new Error('two_dollar_trade_uneconomic_after_costs');
+    const exit=await this.executor.quote(mint,input,BigInt(q.outAtoms));
+    const inputCost=BigInt((q.raw as {inputUsd:string}).inputUsd);
+    const economics=entryEconomics(inputCost,q,exit,this.cfg.MAX_TRADE_COST_PCT);
+    this.store.event('entry_economics',economics,mint);
+    if(!economics.acceptable)throw new Error('two_dollar_trade_uneconomic_after_costs');
     const i:Intent={id:randomUUID(),mint,side:'buy',strategy,reason:'entry_signal',createdAt:Date.now(),quote:q,state:'reserved'};
     this.store.assertLease(this.owner);
     this.store.reserve(i,{maxPositions:this.cfg.MAX_POSITIONS,maxCapital:usd(this.cfg.MAX_CAPITAL_USD),cash:await this.cashUsd(),entryCost:inputCost+BigInt(q.networkFeeUsd)});
@@ -75,13 +91,15 @@ export class Engine {
       const f:Fill={signature:'paper:'+i.id,inAtoms:i.quote.inAtoms,outAtoms:i.quote.minOutAtoms,inputUsd:raw.inputUsd,
         outputUsd:i.quote.outUsd,networkFeeUsd:i.quote.networkFeeUsd,confirmedAt:Date.now(),simulated:true};
       this.store.commitFill(i,f);
+      this.executor.invalidateReads?.();
       return;
     }
     try{
       Object.assign(i,await this.executor.prepare(i.quote));i.state='signed';this.store.saveIntent(i);
-      this.store.assertLease(this.owner);await this.executor.broadcast(i);i.state='submitted';this.store.saveIntent(i);
+      this.store.assertLease(this.owner);this.executor.invalidateReads?.();await this.executor.broadcast(i);i.state='submitted';this.store.saveIntent(i);
       this.store.event('submitted',{signature:i.signature,at:Date.now()},i.mint);
     }catch(e){
+      this.backOffEntry(e);
       i.state=i.signature?'unknown':'failed';this.store.saveIntent(i);this.store.event('execution_error',{reason:errorText(e),signature:i.signature},i.mint);
     }
   }
@@ -93,9 +111,10 @@ export class Engine {
         if(i.state==='reserved'&&!i.signature){i.state='failed';this.store.saveIntent(i);continue;}
         const r=await this.executor.reconcile(i);
         this.store.assertLease(this.owner);
-        if(r.status==='confirmed')this.store.commitFill(i,r.fill);
+        if(r.status==='confirmed'){this.store.commitFill(i,r.fill);this.executor.invalidateReads?.();}
         else if(r.status==='failed'){
           this.store.transaction(()=>{if(i.signature&&r.feeUsd)this.store.charge(i.signature,r.feeUsd);i.state='failed';this.store.saveIntent(i);});
+          this.executor.invalidateReads?.();
           this.store.event('failed_transaction',{signature:i.signature,networkFeeUsd:r.feeUsd??'0'},i.mint);
           // Positions remain active. Exit manager will retry from reconciled quantities, never abandon holdings.
         }else{

@@ -18,7 +18,7 @@ export type Flow = { mint: string; at: number; signature: string; wallet: string
 export type Quote = {
   adapter: string; inputMint: string; outputMint: string; inAtoms: string;
   outAtoms: string; minOutAtoms: string; networkFeeUsd: string;
-  outUsd: string; priceImpactPct: number; at: number; contextSlot?: number;
+  outUsd: string; expectedOutUsd?: string; priceImpactPct: number; at: number; contextSlot?: number;
   raw?: unknown;
 };
 export type Intent = {
@@ -38,5 +38,6 @@ export interface Executor {
   broadcast(intent: Intent): Promise<void>;
   reconcile(intent: Intent): Promise<{ status: 'confirmed'; fill: Fill } | { status: 'pending' } | { status: 'failed'; feeUsd?: string }>;
   balance(mint: string): Promise<bigint>;
+  invalidateReads?():void;
 }
 export const json = (x: unknown) => JSON.stringify(x, (_, v) => typeof v === 'bigint' ? v.toString() : v);

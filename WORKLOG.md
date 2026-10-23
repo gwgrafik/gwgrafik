@@ -1,5 +1,13 @@
 # Dziennik pracy
 
+## Poprawka po raporcie LIVE użytkownika
+
+- Potwierdzono w kodzie nadmierne próby i traktowanie dwóch limitów slippage jako oczekiwanego kosztu.
+- Dodano admission przed RPC, cache/single-flight sald i kont, unieważnianie po transakcjach, cooldown 429 z Retry-After i priorytet wyjść.
+- Rozdzielono expectedOutUsd i chronione outUsd. Limit kosztu 5% i minOut nie zostały podniesione.
+- Zaliczone 30/30 testów, build i typecheck; odczytano dwukrotnie rzeczywiste kwotowania V2 z limitem keyless 0,5 RPS. Nie podpisano transakcji ani nie zmieniono VPS.
+- Nieopublikowane commity Claude z VPS wymagają udostępnienia treści i scalenia. Poprawka powstaje na osobnej gałęzi, bazującej na 6a059ea.
+
 ## 2026-10-23 — nowy projekt
 
 - Utworzono odrębną implementację TypeScript zgodnie z nową specyfikacją użytkownika. Zachowano poprzednie repozytorium portfolio i wcześniejszy research.

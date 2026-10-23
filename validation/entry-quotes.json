@@ -1,0 +1,23 @@
+{
+  "requestedRps": 1,
+  "effectiveRps": 0.5,
+  "elapsedMs": 2138,
+  "signed": false,
+  "broadcast": false,
+  "results": [
+    {
+      "ok": true,
+      "receivedAfterMs": 375,
+      "inAmount": "2000000",
+      "outAmount": "19283236",
+      "minimum": "18993988"
+    },
+    {
+      "ok": true,
+      "receivedAfterMs": 2137,
+      "inAmount": "2000000",
+      "outAmount": "19283819",
+      "minimum": "18994562"
+    }
+  ]
+}

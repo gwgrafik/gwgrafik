@@ -4,6 +4,8 @@ Nowy, niezależny projekt TypeScript / Node 24. Oddzielny katalog, baza SQLite W
 
 **Status: implementacja rozwojowa; domyślnie OBSERVE. Nie jest jeszcze zweryfikowanym produkcyjnym botem LIVE ani dowodem rentowności.** Zestaw testów scenariuszy korzysta z kontrolowanych danych i atrap wykonania. Stan sprawdzeń oraz konkretne ograniczenia opisuje [VALIDATION.md](VALIDATION.md).
 
+Poprawka wejść po raporcie z VPS: [ENTRY_FIX.md](docs/ENTRY_FIX.md). Ogranicza próby i odczyty, respektuje limity API oraz oddziela oczekiwany koszt od granicy slippage. Testy po zmianie: 30/30. Lokalne poprawki VPS wymagają scalenia; ta gałąź ich nie zastępuje.
+
 ## Co jest zaimplementowane
 
 - Discovery przez oficjalny strumień logów Solana Pump.fun z dekoderami aktualnego SDK, DexScreener profiles/boosts oraz GeckoTerminal new/trending pools.

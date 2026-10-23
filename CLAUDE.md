@@ -4,6 +4,8 @@ To NOWY projekt. Nie używaj kodu wcześniejszych botów użytkownika jako podst
 
 Najpierw przeczytaj README.md, SPECIFICATION.md i VALIDATION.md. W tym repozytorium nie potwierdzono jeszcze kompletnego LIVE ani rentowności. Nie nazywaj testów z atrapami testem rzeczywistej sprzedaży lub migracji na mainnet.
 
+Aktualna poprawka po raporcie z VPS jest opisana w `docs/ENTRY_FIX.md`. Użytkownik zgłosił lokalne commity cb443d3/c9af469/6895fe8, których zawartości nie ma na GitHubie. Zachowaj je; nie resetuj do tej gałęzi. Scalenie execution.ts musi zachować obsługę krzywej z VPS oraz dodać pole `expectedOutUsd` do wszystkich ścieżek wyceny. `outUsd` pozostaje chronioną wyceną minOut. Nowe próby mają domyślnie odstęp 6 s, salda TTL 3 s i cooldown mintu 30 s; Jupiter bez klucza sam ogranicza się do 0,5 RPS. Testy: 30/30, bez nowego testu LIVE na VPS.
+
 ## Kolejne zadania w ustalonej kolejności
 
 1. Odtwórz build/testy i sprawdź źródła na VPS. Nie zakładaj, że port 8787 jest wolny; wybierz osobny projekt Compose, wolumen i port hosta. Utrzymuj Node 24. Nie nadpisuj istniejących sekretów, konfiguracji proxy ani usług.

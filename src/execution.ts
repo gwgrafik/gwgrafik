@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { Connection, Keypair, PublicKey, VersionedTransaction, TransactionMessage, ComputeBudgetProgram, TransactionInstruction } from '@solana/web3.js';
-import { getMint, getAssociatedTokenAddressSync, getExtensionTypes, ExtensionType, unpackAccount, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
+import { getAssociatedTokenAddressSync, getExtensionTypes, ExtensionType, unpackAccount, unpackMint, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
 import { JupiterV2,type BuildResponse } from './jupiter.js';
 import { OnlinePumpSdk,PUMP_SDK,getBuyTokenAmountFromSolAmount,getSellSolAmountFromTokenAmount } from '@pump-fun/pump-sdk';
 import BN from 'bn.js';
@@ -9,13 +9,21 @@ import { SOL,USDC,type Executor,type Intent,type Quote,type Fill } from './types
 import { Prices } from './prices.js';
 import { valueUsd,usd } from './money.js';
 import type { Config } from './config.js';
+import { ReadCache } from './cache.js';
+import { retryDelay } from './http.js';
 export class ChainExecutor implements Executor {
   readonly wallet:Keypair|undefined;
   readonly user:PublicKey;
   readonly jupiter:JupiterV2;
   readonly pump:OnlinePumpSdk;
-  private mintCache=new Map<string,{decimals:number;program:PublicKey;at:number}>();
+  private mintCache=new Map<string,{decimals:number;program:PublicKey;at:number;supply?:bigint}>();
+  private balances:ReadCache<string,bigint>;
+  private ataExists=new ReadCache<string,boolean>(3000);
+  private rent=new ReadCache<number,number>(3600000);
+  private pumpGlobal=new ReadCache<string,Awaited<ReturnType<OnlinePumpSdk['fetchGlobal']>>>(30000);
+  private pumpFees=new ReadCache<string,Awaited<ReturnType<OnlinePumpSdk['fetchFeeConfig']>>>(30000);
   constructor(readonly rpc:Connection,readonly prices:Prices,readonly cfg:Config){
+    this.balances=new ReadCache(cfg.WALLET_BALANCE_TTL_MS);
     if(cfg.WALLET_KEYPAIR_PATH){
       const bytes=JSON.parse(readFileSync(cfg.WALLET_KEYPAIR_PATH,'utf8'));
       if(!Array.isArray(bytes)||bytes.length!==64||bytes.some((n:unknown)=>!Number.isInteger(n)||Number(n)<0||Number(n)>255))throw new Error('Invalid wallet file');
@@ -25,61 +33,67 @@ export class ChainExecutor implements Executor {
     this.jupiter=new JupiterV2(cfg.JUPITER_BASE_URL,cfg.JUPITER_API_KEY,cfg.JUPITER_RPS);
     this.pump=new OnlinePumpSdk(rpc);
   }
-  async mint(mint:string){
+  async mint(mint:string):Promise<{decimals:number;program:PublicKey;at:number;supply?:bigint}>{
     if(mint===SOL)return {decimals:9,program:TOKEN_PROGRAM_ID,at:Date.now()};
     // Explicit quote currency: USDC is issuer-controlled and legitimately retains authorities.
     if(mint===USDC)return {decimals:6,program:TOKEN_PROGRAM_ID,at:Date.now()};
     const cached=this.mintCache.get(mint);if(cached&&Date.now()-cached.at<60000)return cached;
     const key=new PublicKey(mint),account=await this.rpc.getAccountInfo(key,'confirmed');
     if(!account||(!account.owner.equals(TOKEN_PROGRAM_ID)&&!account.owner.equals(TOKEN_2022_PROGRAM_ID)))throw new Error('Not a supported SPL mint');
-    const m=await getMint(this.rpc,key,'confirmed',account.owner);
+    const m=unpackMint(key,account,account.owner);
     if(m.freezeAuthority)throw new Error('freeze_authority_present');
     if(m.mintAuthority)throw new Error('mint_authority_present');
     const allowed=new Set([ExtensionType.MetadataPointer,ExtensionType.TokenMetadata]);
     if(getExtensionTypes(m.tlvData).some(e=>!allowed.has(e)))throw new Error('unsupported_token2022_extension');
-    const result={decimals:m.decimals,program:account.owner,at:Date.now()};this.mintCache.set(mint,result);return result;
+    const result={decimals:m.decimals,program:account.owner,at:Date.now(),supply:m.supply};this.mintCache.set(mint,result);return result;
   }
   async balance(mint:string):Promise<bigint>{
     if(!this.wallet)throw new Error('Wallet not configured');
-    if(mint===SOL)return BigInt(await this.rpc.getBalance(this.user,'confirmed'));
-    const accounts=await this.rpc.getParsedTokenAccountsByOwner(this.user,{mint:new PublicKey(mint)},'confirmed');
-    return accounts.value.reduce((s,a)=>s+BigInt(a.account.data.parsed.info.tokenAmount.amount),0n);
+    return this.balances.get(mint,async()=>{
+      if(mint===SOL)return BigInt(await this.rpc.getBalance(this.user,'confirmed'));
+      const accounts=await this.rpc.getParsedTokenAccountsByOwner(this.user,{mint:new PublicKey(mint)},'confirmed');
+      return accounts.value.reduce((s,a)=>s+BigInt(a.account.data.parsed.info.tokenAmount.amount),0n);
+    });
   }
+  invalidateReads(){this.balances.invalidate();this.ataExists.invalidate();}
   async quote(input:string,output:string,amount:bigint):Promise<Quote>{
     if(amount<=0n||amount>BigInt(Number.MAX_SAFE_INTEGER))throw new Error('Invalid quote amount');
     const [im,om]=await Promise.all([this.mint(input),this.mint(output)]);
     const inputUsd=valueUsd(amount,im.decimals,this.prices.get(input));
     const ata=output===SOL?null:getAssociatedTokenAddressSync(new PublicKey(output),this.user,false,om.program);
-    const missing=ata?!await this.rpc.getAccountInfo(ata,'confirmed'):false;
-    const rent=missing?await this.rpc.getMinimumBalanceForRentExemption(165):0;
+    const missing=ata?!await this.ataExists.get(ata.toBase58(),async()=>!!await this.rpc.getAccountInfo(ata,'confirmed')):false;
+    const rent=missing?await this.rent.get(165,()=>this.rpc.getMinimumBalanceForRentExemption(165)):0;
     const fee=valueUsd(BigInt(5000+this.cfg.MAX_PRIORITY_LAMPORTS+rent),9,this.prices.get(SOL));
     try {
       const raw=await this.jupiter.build(input,output,amount.toString(),this.user.toBase58(),this.cfg.MAX_SLIPPAGE_BPS);
       if(raw.inputMint!==input||raw.outputMint!==output||raw.inAmount!==amount.toString()||BigInt(raw.outAmount)<=0n||!raw.routePlan.length)
         throw new Error('Quote does not match intent');
       return {adapter:'jupiter',inputMint:input,outputMint:output,inAtoms:raw.inAmount,outAtoms:raw.outAmount,minOutAtoms:raw.otherAmountThreshold,
-        outUsd:valueUsd(BigInt(raw.otherAmountThreshold),om.decimals,this.prices.get(output)).toString(),networkFeeUsd:fee.toString(),
+        outUsd:valueUsd(BigInt(raw.otherAmountThreshold),om.decimals,this.prices.get(output)).toString(),
+        expectedOutUsd:valueUsd(BigInt(raw.outAmount),om.decimals,this.prices.get(output)).toString(),networkFeeUsd:fee.toString(),
         priceImpactPct:Number(raw.priceImpactPct)*100,at:Date.now(),contextSlot:raw.contextSlot,raw:{quote:raw,inputUsd:inputUsd.toString()}};
     } catch(e) {
+      if(retryDelay(e))throw e;
       if(this.cfg.ENABLE_PUMP_CURVE!=='true'||(input!==SOL&&output!==SOL))throw e;
       return this.curveQuote(input,output,amount,inputUsd,fee);
     }
   }
   private async curveQuote(input:string,output:string,amount:bigint,inputUsd:bigint,fee:bigint):Promise<Quote>{
     const buy=input===SOL,mint=new PublicKey(buy?output:input),info=await this.mint(mint.toBase58());
-    const [state,global,feeConfig,m]=await Promise.all([
+    const [state,global,feeConfig]=await Promise.all([
       buy?this.pump.fetchBuyState(mint,this.user,info.program):this.pump.fetchSellState(mint,this.user,info.program),
-      this.pump.fetchGlobal(),this.pump.fetchFeeConfig(),getMint(this.rpc,mint,'confirmed',info.program)]);
+      this.pumpGlobal.get('global',()=>this.pump.fetchGlobal()),this.pumpFees.get('fees',()=>this.pump.fetchFeeConfig())]);
     if(!state.quoteMint.equals(new PublicKey(SOL)))throw new Error('Direct curve adapter currently supports SOL quote only');
     if(state.bondingCurve.complete)throw new Error('Curve migrated: requires DEX route');
-    const params={global,feeConfig,mintSupply:new BN(m.supply.toString()),bondingCurve:state.bondingCurve,amount:new BN(amount.toString()),quoteMint:state.quoteMint,quoteTransferFee:state.quoteTransferFee};
+    if(info.supply===undefined)throw new Error('Missing verified token supply');
+    const params={global,feeConfig,mintSupply:new BN(info.supply.toString()),bondingCurve:state.bondingCurve,amount:new BN(amount.toString()),quoteMint:state.quoteMint,quoteTransferFee:state.quoteTransferFee};
     const out=buy?getBuyTokenAmountFromSolAmount(params):getSellSolAmountFromTokenAmount(params);
     const floor=BigInt(out.toString())*BigInt(10000-this.cfg.MAX_SLIPPAGE_BPS)/10000n;
     const outputInfo=await this.mint(output);
     const markedOutput=valueUsd(BigInt(out.toString()),outputInfo.decimals,this.prices.get(output));
     const effectiveLossPct=Math.max(0,1-Number(markedOutput)/Number(inputUsd))*100;
     return {adapter:'pump-curve',inputMint:input,outputMint:output,inAtoms:amount.toString(),outAtoms:out.toString(),minOutAtoms:floor.toString(),
-      outUsd:valueUsd(floor,outputInfo.decimals,this.prices.get(output)).toString(),networkFeeUsd:fee.toString(),priceImpactPct:effectiveLossPct,
+      outUsd:valueUsd(floor,outputInfo.decimals,this.prices.get(output)).toString(),expectedOutUsd:markedOutput.toString(),networkFeeUsd:fee.toString(),priceImpactPct:effectiveLossPct,
       at:Date.now(),raw:{inputUsd:inputUsd.toString()}};
   }
   async prepare(q:Quote){

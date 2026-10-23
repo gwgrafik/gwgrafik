@@ -7,6 +7,8 @@ const schema = z.object({
   RPC_WS_URL: z.url().default('wss://api.mainnet-beta.solana.com'),
   JUPITER_BASE_URL: z.url().default('https://api.jup.ag/swap/v2'),
   JUPITER_RPS: num(.5),
+  WALLET_BALANCE_TTL_MS: num(3000).refine(n=>n<=5000),
+  ENTRY_INTERVAL_MS: num(6000).refine(n=>n>=4000), ENTRY_MINT_COOLDOWN_MS: num(30000),
   JUPITER_API_KEY: z.string().default(''), WALLET_KEYPAIR_PATH: z.string().default(''),
   DATA_DIR: z.string().default('./data'), PORT: num(8787), HOST: z.string().default('127.0.0.1'),
   DASHBOARD_TOKEN: z.string().default(''), POSITION_USD: num(2), MAX_CAPITAL_USD: num(10),
