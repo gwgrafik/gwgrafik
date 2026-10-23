@@ -1,0 +1,39 @@
+{
+  "name": "solana-profit-engine-v1",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "@pump-fun/pump-sdk": "4.3.1",
+    "@pump-fun/pump-swap-sdk": "2.2.0",
+    "@solana/spl-token": "0.4.15",
+    "@solana/web3.js": "1.98.4",
+    "bn.js": "5.2.5",
+    "bs58": "6.0.0",
+    "decimal.js": "10.6.0",
+    "https-proxy-agent": "9.1.0",
+    "ws": "8.22.0",
+    "zod": "4.1.12"
+  },
+  "overrides": {
+    "@solana/web3.js": "$@solana/web3.js"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node --use-env-proxy --env-file-if-exists=.env dist/main.js",
+    "dev": "node --use-env-proxy --import tsx --env-file-if-exists=.env src/main.ts",
+    "test": "node --use-env-proxy --import tsx --test test/*.test.ts",
+    "check": "tsc --noEmit",
+    "probe": "node --use-env-proxy --import tsx --env-file-if-exists=.env src/probe.ts"
+  },
+  "devDependencies": {
+    "@types/bn.js": "5.2.0",
+    "@types/node": "26.6.5",
+    "@types/ws": "8.18.2",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2"
+  }
+}
